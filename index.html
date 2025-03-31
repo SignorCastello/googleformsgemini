@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Form Helper</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            background-color: white;
+        }
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: none;
+        }
+        #geminiResponse {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 10px;
+            border: 1px solid black;
+            display: none;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <iframe id="googleForm"></iframe>
+    <div id="geminiResponse"></div>
+    
+    <script>
+        document.addEventListener('paste', function(event) {
+            event.preventDefault();
+            const pastedData = event.clipboardData.getData('text');
+            
+            if (pastedData && pastedData.includes('docs.google.com/forms')) {
+                const iframe = document.getElementById('googleForm');
+                iframe.src = pastedData;
+                iframe.style.display = 'block';
+            }
+        });
+
+        async function takeScreenshot() {
+            try {
+                const stream = await navigator.mediaDevices.getDisplayMedia({ video: { mediaSource: "screen" } });
+                const track = stream.getVideoTracks()[0];
+                const imageCapture = new ImageCapture(track);
+                const bitmap = await imageCapture.grabFrame();
+                
+                const canvas = document.createElement("canvas");
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(bitmap, 0, 0);
+                track.stop();
+                
+                const imageData = canvas.toDataURL("image/png");
+                sendToGemini(imageData);
+            } catch (error) {
+                console.error("Errore nella cattura dello screenshot:", error);
+            }
+        }
+
+        async function sendToGemini(imageData) {
+            try {
+                const response = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=AIzaSyBAuqpLKzsFv5dhmLeEt3AzLmKH7FCEKv4', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                {
+                                    text: "Look at this Google Form question. Tell me ONLY the correct answer choice, nothing else. Be direct and concise."
+                                },
+                                {
+                                    inlineData: {
+                                        mimeType: 'image/png',
+                                        data: imageData.split(',')[1]
+                                    }
+                                }
+                            ]
+                        }],
+                        generationConfig: {
+                            maxOutputTokens: 2048
+                        }
+                    })
+                });
+                const data = await response.json();
+                if (data.candidates && data.candidates.length > 0 &&
+                    data.candidates[0].content && data.candidates[0].content.parts &&
+                    data.candidates[0].content.parts.length > 0) {
+                    displayGeminiResponse(data.candidates[0].content.parts[0].text.trim());
+                } else {
+                    console.error('Risposta inattesa da Gemini:', data);
+                }
+            } catch (error) {
+                console.error('Errore nella richiesta a Gemini:', error);
+            }
+        }
+
+        function displayGeminiResponse(responseText) {
+            const responseDiv = document.getElementById('geminiResponse');
+            responseDiv.textContent = responseText;
+            responseDiv.style.display = 'block';
+        }
+
+        function hideGeminiResponse() {
+            document.getElementById('geminiResponse').style.display = 'none';
+        }
+
+        document.addEventListener('keydown', async (event) => {
+            if (event.key === '4') {
+                takeScreenshot();
+            } else if (event.key === '5') {
+                document.getElementById('geminiResponse').style.display = 'block';
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            if (event.key === '5') {
+                hideGeminiResponse();
+            }
+        });
+    </script>
+</body>
+</html>
